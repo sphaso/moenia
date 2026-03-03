@@ -1,5 +1,5 @@
 # moenia
-
+[![Build Status](https://github.com/sphaso/moenia/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sphaso/moenia/actions/workflows/ci.yml)
 > *Moenia* — Latin for "defensive walls". A circuit breaker library for Rust.
 
 `moenia` protects your application from cascading failures by wrapping calls to external services and automatically stopping requests when a service is struggling, giving it time to recover.
