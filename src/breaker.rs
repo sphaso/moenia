@@ -1,5 +1,6 @@
 use std::future::Future;
 use std::marker::PhantomData;
+use std::sync::Mutex;
 
 use crate::classifier::Classifier;
 use crate::config::Config;
@@ -7,14 +8,18 @@ use crate::error::Error;
 use crate::policy::Policy;
 use crate::state::{transition, State};
 
+struct BreakerState<P: Policy> {
+    state: State,
+    policy: P,
+}
+
 pub struct CircuitBreaker<E, P, C>
 where
     E: std::error::Error,
     P: Policy,
     C: Classifier<E>,
 {
-    state: State,
-    policy: P,
+    inner: Mutex<BreakerState<P>>,
     config: Config,
     classifier: C,
     _phantom: PhantomData<E>,
@@ -23,15 +28,14 @@ where
 impl<E: std::error::Error, P: Policy, C: Classifier<E>> CircuitBreaker<E, P, C> {
     pub fn new(policy: P, config: Config, classifier: C) -> Self {
         CircuitBreaker {
-            policy,
+            inner: Mutex::new(BreakerState { policy, state: State::Closed }),
             config,
             classifier,
-            state: State::Closed,
             _phantom: PhantomData,
         }
     }
 
-    pub async fn call<F, Fut, T>(&mut self, f: F) -> Result<T, Error<E>>
+    pub async fn call<F, Fut, T>(&self, f: F) -> Result<T, Error<E>>
     where
         F: FnOnce() -> Fut,
         Fut: Future<Output = Result<T, E>>,
@@ -43,7 +47,7 @@ impl<E: std::error::Error, P: Policy, C: Classifier<E>> CircuitBreaker<E, P, C> 
         Ok(result?)
     }
 
-    pub fn call_blocking<F, T>(&mut self, f: F) -> Result<T, Error<E>>
+    pub fn call_blocking<F, T>(&self, f: F) -> Result<T, Error<E>>
     where
         F: FnOnce() -> Result<T, E>,
     {
@@ -55,28 +59,40 @@ impl<E: std::error::Error, P: Policy, C: Classifier<E>> CircuitBreaker<E, P, C> 
     }
 
     pub fn is_closed(&self) -> bool {
-        matches!(self.state, State::Closed)
+        let inner = self.inner.lock().unwrap();
+        matches!(inner.state, State::Closed)
     }
 
     pub fn is_open(&self) -> bool {
-        matches!(self.state, State::Open { .. })
+        let inner = self.inner.lock().unwrap();
+        matches!(inner.state, State::Open { .. })
     }
 
     pub fn is_half_open(&self) -> bool {
-        matches!(self.state, State::HalfOpen { .. })
+        let inner = self.inner.lock().unwrap();
+        matches!(inner.state, State::HalfOpen { .. })
     }
 
-    fn pre_call(&mut self) -> Result<(), Error<E>> {
+    #[cfg(test)]
+    pub fn set_state(&self, state: State) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.state = state;
+    }
+
+    fn pre_call(&self) -> Result<(), Error<E>> {
+        let mut inner = self.inner.lock().unwrap();
+
+        let state_snapshot = inner.state.clone();
         if let Some(new_state) = transition(
-            &self.state,
-            &mut self.policy,
+            &state_snapshot,
+            &mut inner.policy,
             self.config.half_open_probes,
             self.config.open_duration,
         ) {
-            self.state = new_state;
+            inner.state = new_state;
         }
 
-        match &self.state {
+        match &inner.state {
             State::Open { .. } => return Err(Error::CircuitOpen),
             State::HalfOpen {
                 in_flight,
@@ -85,7 +101,7 @@ impl<E: std::error::Error, P: Policy, C: Classifier<E>> CircuitBreaker<E, P, C> 
                 if *in_flight {
                     return Err(Error::ProbeInFlight);
                 } else {
-                    self.state = State::HalfOpen {
+                    inner.state = State::HalfOpen {
                         n_successful_probes: *n_successful_probes,
                         in_flight: true,
                     }
@@ -96,16 +112,18 @@ impl<E: std::error::Error, P: Policy, C: Classifier<E>> CircuitBreaker<E, P, C> 
         Ok(())
     }
 
-    fn post_call<T>(&mut self, result: &Result<T, E>) {
+    fn post_call<T>(&self, result: &Result<T, E>) {
+        let mut inner = self.inner.lock().unwrap();
+
         match &result {
             Ok(_) => {
-                self.policy.record_success();
-                match &self.state {
+                inner.policy.record_success();
+                match &inner.state {
                     State::HalfOpen {
                         n_successful_probes,
                         ..
                     } => {
-                        self.state = State::HalfOpen {
+                        inner.state = State::HalfOpen {
                             n_successful_probes: *n_successful_probes + 1,
                             in_flight: false,
                         }
@@ -115,24 +133,49 @@ impl<E: std::error::Error, P: Policy, C: Classifier<E>> CircuitBreaker<E, P, C> 
             }
             Err(e) => {
                 if self.classifier.is_failure(e) {
-                    if let State::HalfOpen { .. } = self.state {
-                        self.state = State::HalfOpen {
+                    if let State::HalfOpen { .. } = inner.state {
+                        inner.state = State::HalfOpen {
                             n_successful_probes: 0,
                             in_flight: false,
                         }
                     }
-                    self.policy.record_failure();
+                    inner.policy.record_failure();
                 }
             }
         }
 
+        let state_snapshot = inner.state.clone();
         if let Some(new_state) = transition(
-            &self.state,
-            &mut self.policy,
+            &state_snapshot,
+            &mut inner.policy,
             self.config.half_open_probes,
             self.config.open_duration,
         ) {
-            self.state = new_state;
+            inner.state = new_state;
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::policy::CountBased;
+    use crate::classifier::AlwaysFailure;
+    use crate::config::Config;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn probe_in_flight_returns_error() {
+        let config = Config::new("half_open_test")
+            .open_duration(Duration::from_millis(1))
+            .half_open_probes(1);
+        let policy = CountBased::new(1);
+        let classifier = AlwaysFailure;
+
+        let cb : CircuitBreaker<std::io::Error, CountBased, AlwaysFailure> = CircuitBreaker::new(policy, config, classifier);
+        cb.set_state(State::HalfOpen { n_successful_probes: 0, in_flight: true });
+
+        let result = cb.call(|| async { Ok::<(), _>(()) }).await;
+        assert!(matches!(result, Err(Error::ProbeInFlight)));
     }
 }

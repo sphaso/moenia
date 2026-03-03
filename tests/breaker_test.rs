@@ -10,7 +10,7 @@ async fn never_failure_test() {
     let policy = CountBased::new(1);
     let classifier = NeverFailure;
 
-    let mut cb = CircuitBreaker::new(policy, config, classifier);
+    let cb = CircuitBreaker::new(policy, config, classifier);
     let _ = cb
         .call(|| async {
             Err::<(), _>(std::io::Error::new(std::io::ErrorKind::Other, "test error"))
@@ -26,7 +26,7 @@ async fn always_failure_test() {
     let policy = CountBased::new(1);
     let classifier = AlwaysFailure;
 
-    let mut cb = CircuitBreaker::new(policy, config, classifier);
+    let cb = CircuitBreaker::new(policy, config, classifier);
     let _ = cb
         .call(|| async {
             Err::<(), _>(std::io::Error::new(std::io::ErrorKind::Other, "test error"))
@@ -45,7 +45,7 @@ async fn half_open_to_closed_transition_test() {
     let classifier =
         MatchClassifier::new(|e: &std::io::Error| e.kind() == std::io::ErrorKind::Other);
 
-    let mut cb = CircuitBreaker::new(policy, config, classifier);
+    let cb = CircuitBreaker::new(policy, config, classifier);
 
     let _ = cb
         .call(|| async {
@@ -68,7 +68,7 @@ async fn half_open_to_open_transition_test() {
     let policy = CountBased::new(1);
     let classifier = AlwaysFailure;
 
-    let mut cb = CircuitBreaker::new(policy, config, classifier);
+    let cb = CircuitBreaker::new(policy, config, classifier);
 
     let _ = cb
         .call(|| async {
@@ -96,7 +96,7 @@ fn call_blocking_half_open_to_closed_transition_test() {
     let classifier =
         MatchClassifier::new(|e: &std::io::Error| e.kind() == std::io::ErrorKind::Other);
 
-    let mut cb = CircuitBreaker::new(policy, config, classifier);
+    let cb = CircuitBreaker::new(policy, config, classifier);
 
     let _ = cb.call_blocking(|| {
         Err::<(), _>(std::io::Error::new(std::io::ErrorKind::Other, "test error"))
@@ -117,7 +117,7 @@ fn call_blocking_half_open_to_open_transition_test() {
     let policy = CountBased::new(1);
     let classifier = AlwaysFailure;
 
-    let mut cb = CircuitBreaker::new(policy, config, classifier);
+    let cb = CircuitBreaker::new(policy, config, classifier);
 
     let _ = cb.call_blocking(|| {
         Err::<(), _>(std::io::Error::new(std::io::ErrorKind::Other, "test error"))
@@ -131,20 +131,3 @@ fn call_blocking_half_open_to_open_transition_test() {
     });
     assert!(cb.is_open());
 }
-
-//  #[tokio::test]
-//  async fn half_open_probe_in_flight_test() {
-//      let config = Config::new("half_open_test")
-//          .open_duration(Duration::from_millis(1))
-//          .half_open_probes(1);
-//      let policy = CountBased::new(1);
-//      let classifier = AlwaysFailure;
-
-//      let mut cb = CircuitBreaker::new(policy, config, classifier);
-
-//      let _ = cb.call(|| async { Err::<(), _>(std::io::Error::new(std::io::ErrorKind::Other, "test error")) }).await;
-//      assert!(cb.is_open());
-//      let result = cb.call(|| async { Err::<(), _>(std::io::Error::new(std::io::ErrorKind::Other, "test error")) }).await;
-
-//      assert!(matches!(result, Err(Error::ProbeInFlight)));
-//  }

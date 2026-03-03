@@ -1,6 +1,7 @@
 use crate::policy::Policy;
 use std::time::{Duration, Instant};
 
+#[derive(Clone)]
 pub enum State {
     Open {
         until: Instant,
