@@ -1,11 +1,54 @@
 use std::marker::PhantomData;
 
+/// Determines whether an error should count as a failure for the circuit breaker.
+///
+/// Implement this trait to create custom error classification strategies.
+/// Three built-in implementations are provided: [`AlwaysFailure`], [`NeverFailure`],
+/// and [`MatchClassifier`].
 pub trait Classifier<E: std::error::Error> {
     fn is_failure(&self, error: &E) -> bool;
 }
 
+/// A classifier that always counts errors as failures.
+///
+/// Useful for testing or when every error should trip the breaker.
+///
+/// # Example
+///
+/// ```rust
+/// use moenia::AlwaysFailure;
+///
+/// let classifier = AlwaysFailure;
+/// ```
 pub struct AlwaysFailure;
+
+/// A classifier that never counts errors as failures.
+///
+/// Useful for testing or when you want to disable circuit breaking temporarily.
+///
+/// # Example
+///
+/// ```rust
+/// use moenia::NeverFailure;
+///
+/// let classifier = NeverFailure;
+/// ```
 pub struct NeverFailure;
+
+/// A classifier that uses a closure to determine if an error is a failure.
+///
+/// This is the most flexible built-in classifier — use it when you need
+/// to classify errors based on their content.
+///
+/// # Example
+///
+/// ```rust
+/// use moenia::MatchClassifier;
+///
+/// let classifier = MatchClassifier::new(|e: &std::io::Error| {
+///     e.kind() == std::io::ErrorKind::TimedOut
+/// });
+/// ```
 pub struct MatchClassifier<E, F: Fn(&E) -> bool> {
     matcher: F,
     _phantom: PhantomData<E>,

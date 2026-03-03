@@ -24,6 +24,37 @@ struct BreakerState<P: Policy> {
     policy: P,
 }
 
+/// A circuit breaker that protects your application from cascading failures.
+///
+/// Wraps calls to external services and automatically stops requests when a service
+/// is struggling, giving it time to recover.
+///
+/// # Type Parameters
+///
+/// - `E` — the error type returned by the wrapped service
+/// - `P` — the failure policy ([`crate::CountBased`] or [`crate::SlidingWindow`])
+/// - `C` — the error classifier ([`crate::MatchClassifier`], [`crate::AlwaysFailure`], [`crate::NeverFailure`])
+///
+/// # Example
+///
+/// ```rust,no_run
+/// # #[tokio::main]
+/// # async fn main() {
+/// use moenia::{CircuitBreaker, Config, CountBased, MatchClassifier};
+/// use std::time::Duration;
+///
+/// let mut breaker = CircuitBreaker::new(
+///     CountBased::new(5),
+///     Config::new("payments-service"),
+///     MatchClassifier::new(|e: &std::io::Error| e.kind() == std::io::ErrorKind::TimedOut),
+/// );
+///
+/// let result = breaker.call(|| async {
+///     // your service call here
+///     Ok::<(), std::io::Error>(())
+/// }).await;
+/// # }
+/// ```
 pub struct CircuitBreaker<E, P, C>
 where
     E: std::error::Error,
@@ -39,6 +70,7 @@ where
 }
 
 impl<E: std::error::Error, P: Policy, C: Classifier<E>> CircuitBreaker<E, P, C> {
+    /// Creates a new `CircuitBreaker` in the `Closed` state.
     pub fn new(policy: P, config: Config, classifier: C) -> Self {
         #[cfg(feature = "otel")]
         let meter = opentelemetry::global::meter(config.name().to_owned().leak());
@@ -62,6 +94,11 @@ impl<E: std::error::Error, P: Policy, C: Classifier<E>> CircuitBreaker<E, P, C> 
         }
     }
 
+    /// Executes an async function through the circuit breaker.
+    ///
+    /// Returns `Err(Error::CircuitOpen)` if the breaker is open,
+    /// `Err(Error::ProbeInFlight)` if a probe is already running,
+    /// or the inner result wrapped in `Error::Inner`.
     pub async fn call<F, Fut, T>(&self, f: F) -> Result<T, Error<E>>
     where
         F: FnOnce() -> Fut,
@@ -74,6 +111,9 @@ impl<E: std::error::Error, P: Policy, C: Classifier<E>> CircuitBreaker<E, P, C> 
         Ok(result?)
     }
 
+    /// Executes a blocking function through the circuit breaker.
+    ///
+    /// Same behavior as [`CircuitBreaker::call`] but for synchronous code.
     pub fn call_blocking<F, T>(&self, f: F) -> Result<T, Error<E>>
     where
         F: FnOnce() -> Result<T, E>,

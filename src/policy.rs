@@ -1,6 +1,16 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
+/// A failure policy that opens the breaker after a fixed number of failures.
+///
+/// # Example
+///
+/// ```rust
+/// use moenia::CountBased;
+///
+/// // open after 5 failures
+/// let policy = CountBased::new(5);
+/// ```
 pub struct CountBased {
     failures: u32,
     threshold: u32,
@@ -15,6 +25,18 @@ impl CountBased {
     }
 }
 
+/// A failure policy that opens the breaker when failures exceed a threshold
+/// within a sliding time window. Old failures outside the window are discarded.
+///
+/// # Example
+///
+/// ```rust
+/// use moenia::SlidingWindow;
+/// use std::time::Duration;
+///
+/// // open after 5 failures within 60 seconds
+/// let policy = SlidingWindow::new(5, Duration::from_secs(60));
+/// ```
 pub struct SlidingWindow {
     failures: VecDeque<Instant>,
     window: Duration,
@@ -31,6 +53,10 @@ impl SlidingWindow {
     }
 }
 
+/// Determines when a circuit breaker should open based on failure history.
+///
+/// Implement this trait to create custom failure detection strategies.
+/// Two built-in implementations are provided: [`CountBased`] and [`SlidingWindow`].
 pub trait Policy {
     fn record_success(&mut self);
     fn record_failure(&mut self);

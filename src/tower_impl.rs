@@ -8,6 +8,23 @@ use crate::breaker::CircuitBreaker;
 use crate::classifier::Classifier;
 use crate::policy::Policy;
 
+/// A [`tower::Layer`] that wraps a service with circuit breaker protection.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use moenia::{CircuitBreaker, CircuitBreakerLayer, Config, CountBased, AlwaysFailure};
+/// use tower::ServiceBuilder;
+/// use std::sync::Arc;
+///
+/// let breaker = Arc::new(CircuitBreaker::new(
+///     CountBased::new(5),
+///     Config::new("payments-service"),
+///     AlwaysFailure,
+/// ));
+///
+/// let layer = CircuitBreakerLayer::new(breaker);
+/// ```
 #[derive(Clone)]
 pub struct CircuitBreakerLayer<E, P, C>
 where
@@ -18,6 +35,9 @@ where
     breaker: Arc<CircuitBreaker<E, P, C>>,
 }
 
+/// A [`tower::Service`] that wraps an inner service with circuit breaker protection.
+///
+/// Created by [`CircuitBreakerLayer`] — you rarely need to construct this directly.
 #[derive(Clone)]
 pub struct CircuitBreakerService<E, P, C, S>
 where

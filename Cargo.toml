@@ -11,14 +11,12 @@ rust-version = "1.75"
 
 [features]
 default = []
-tokio = ["dep:tokio"]
-tower = ["dep:tower", "dep:tower-layer", "dep:futures", "tokio"]
+tower = ["dep:tower", "dep:tower-layer", "dep:futures"]
 otel = ["dep:opentelemetry", "dep:opentelemetry-semantic-conventions"]
 serde = ["dep:serde"]
 
 [dependencies]
 thiserror = "2"
-tokio = { version = "1", features = ["time", "sync"], optional = true }
 tower = { version = "0.5", features = ["util"], optional = true }
 tower-layer = { version = "0.3", optional = true }
 futures = { version = "0.3", optional = true }
