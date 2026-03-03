@@ -1,10 +1,10 @@
-use std::future::Future;
-use std::marker::PhantomData;
-use std::sync::Mutex;
 #[cfg(feature = "otel")]
 use opentelemetry::metrics::Counter;
 #[cfg(feature = "otel")]
 use opentelemetry::KeyValue;
+use std::future::Future;
+use std::marker::PhantomData;
+use std::sync::Mutex;
 
 use crate::classifier::Classifier;
 use crate::config::Config;
@@ -44,7 +44,10 @@ impl<E: std::error::Error, P: Policy, C: Classifier<E>> CircuitBreaker<E, P, C> 
         let meter = opentelemetry::global::meter(config.name().to_owned().leak());
 
         CircuitBreaker {
-            inner: Mutex::new(BreakerState { policy, state: State::Closed }),
+            inner: Mutex::new(BreakerState {
+                policy,
+                state: State::Closed,
+            }),
             config,
             classifier,
             _phantom: PhantomData,
@@ -55,7 +58,7 @@ impl<E: std::error::Error, P: Policy, C: Classifier<E>> CircuitBreaker<E, P, C> 
                     calls_rejected: meter.u64_counter("moenia.calls.rejected").build(),
                     state_transitions: meter.u64_counter("moenia.state_transitions").build(),
                 }
-            }
+            },
         }
     }
 
@@ -127,8 +130,8 @@ impl<E: std::error::Error, P: Policy, C: Classifier<E>> CircuitBreaker<E, P, C> 
                 #[cfg(feature = "otel")]
                 self.instrumentation.calls_rejected.add(1, attrs);
 
-                return Err(Error::CircuitOpen)
-            },
+                return Err(Error::CircuitOpen);
+            }
             State::HalfOpen {
                 in_flight,
                 n_successful_probes,
@@ -191,17 +194,27 @@ impl<E: std::error::Error, P: Policy, C: Classifier<E>> CircuitBreaker<E, P, C> 
         ) {
             #[cfg(feature = "otel")]
             match (state_snapshot, new_state.clone()) {
-                (State::Closed, State::Open { .. }) =>
-                  self.instrumentation.state_transitions.add(1, &[KeyValue::new("transition", "closed_to_open")]),
-                (State::Closed, State::HalfOpen { .. }) =>
-                  self.instrumentation.state_transitions.add(1, &[KeyValue::new("transition", "closed_to_halfopen")]),
-                (State::Open { .. }, State::HalfOpen { .. }) =>
-                  self.instrumentation.state_transitions.add(1, &[KeyValue::new("transition", "open_to_halfopen")]),
-                (State::HalfOpen {..}, State::Open { .. }) =>
-                  self.instrumentation.state_transitions.add(1, &[KeyValue::new("transition", "halfopen_to_open")]),
-                (State::HalfOpen {..}, State::Closed) =>
-                  self.instrumentation.state_transitions.add(1, &[KeyValue::new("transition", "halfopen_to_closed")]),
-                _ => ()
+                (State::Closed, State::Open { .. }) => self
+                    .instrumentation
+                    .state_transitions
+                    .add(1, &[KeyValue::new("transition", "closed_to_open")]),
+                (State::Closed, State::HalfOpen { .. }) => self
+                    .instrumentation
+                    .state_transitions
+                    .add(1, &[KeyValue::new("transition", "closed_to_halfopen")]),
+                (State::Open { .. }, State::HalfOpen { .. }) => self
+                    .instrumentation
+                    .state_transitions
+                    .add(1, &[KeyValue::new("transition", "open_to_halfopen")]),
+                (State::HalfOpen { .. }, State::Open { .. }) => self
+                    .instrumentation
+                    .state_transitions
+                    .add(1, &[KeyValue::new("transition", "halfopen_to_open")]),
+                (State::HalfOpen { .. }, State::Closed) => self
+                    .instrumentation
+                    .state_transitions
+                    .add(1, &[KeyValue::new("transition", "halfopen_to_closed")]),
+                _ => (),
             }
 
             inner.state = new_state;
@@ -212,9 +225,9 @@ impl<E: std::error::Error, P: Policy, C: Classifier<E>> CircuitBreaker<E, P, C> 
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::policy::CountBased;
     use crate::classifier::AlwaysFailure;
     use crate::config::Config;
+    use crate::policy::CountBased;
     use std::time::Duration;
 
     #[tokio::test]
@@ -225,8 +238,12 @@ mod test {
         let policy = CountBased::new(1);
         let classifier = AlwaysFailure;
 
-        let cb : CircuitBreaker<std::io::Error, CountBased, AlwaysFailure> = CircuitBreaker::new(policy, config, classifier);
-        cb.set_state(State::HalfOpen { n_successful_probes: 0, in_flight: true });
+        let cb: CircuitBreaker<std::io::Error, CountBased, AlwaysFailure> =
+            CircuitBreaker::new(policy, config, classifier);
+        cb.set_state(State::HalfOpen {
+            n_successful_probes: 0,
+            in_flight: true,
+        });
 
         let result = cb.call(|| async { Ok::<(), _>(()) }).await;
         assert!(matches!(result, Err(Error::ProbeInFlight)));

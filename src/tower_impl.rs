@@ -1,7 +1,7 @@
-use std::sync::Arc;
-use tower::Layer;
-use std::task::{Context, Poll};
 use futures::future::BoxFuture;
+use std::sync::Arc;
+use std::task::{Context, Poll};
+use tower::Layer;
 use tower::Service;
 
 use crate::breaker::CircuitBreaker;
@@ -44,7 +44,10 @@ where
     type Service = CircuitBreakerService<E, P, C, S>;
 
     fn layer(&self, inner: S) -> Self::Service {
-        CircuitBreakerService { inner, breaker: Arc::clone(&self.breaker) }
+        CircuitBreakerService {
+            inner,
+            breaker: Arc::clone(&self.breaker),
+        }
     }
 }
 
@@ -62,7 +65,9 @@ where
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.inner.poll_ready(cx).map_err(|e| crate::Error::Inner(e.into()))
+        self.inner
+            .poll_ready(cx)
+            .map_err(|e| crate::Error::Inner(e.into()))
     }
 
     fn call(&mut self, req: Req) -> Self::Future {
@@ -70,9 +75,9 @@ where
         let inner_future = self.inner.call(req);
 
         Box::pin(async move {
-            breaker.call(|| async move {
-                inner_future.await.map_err(Into::into)
-            }).await
+            breaker
+                .call(|| async move { inner_future.await.map_err(Into::into) })
+                .await
         })
     }
 }

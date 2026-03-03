@@ -1,7 +1,9 @@
-use std::task::{Context, Poll};
+use moenia::{
+    AlwaysFailure, CircuitBreaker, CircuitBreakerLayer, Config, CountBased, Error, NeverFailure,
+};
 use std::sync::Arc;
-use tower::{ServiceExt, Layer, Service};
-use moenia::{Error, CircuitBreakerLayer, CircuitBreaker, Config, CountBased, NeverFailure, AlwaysFailure};
+use std::task::{Context, Poll};
+use tower::{Layer, Service, ServiceExt};
 
 struct MockService {
     should_fail: bool,
@@ -31,7 +33,8 @@ async fn tower_call_succeeds() {
     let policy = CountBased::new(1);
     let classifier = NeverFailure;
 
-    let cb : Arc<CircuitBreaker<std::io::Error, CountBased, NeverFailure>> = Arc::new(CircuitBreaker::new(policy, config, classifier));
+    let cb: Arc<CircuitBreaker<std::io::Error, CountBased, NeverFailure>> =
+        Arc::new(CircuitBreaker::new(policy, config, classifier));
     let layer = CircuitBreakerLayer::new(Arc::clone(&cb));
     let mock_service = MockService { should_fail: false };
     let mut service = layer.layer(mock_service);
@@ -48,7 +51,8 @@ async fn tower_call_fails() {
     let policy = CountBased::new(1);
     let classifier = AlwaysFailure;
 
-    let cb : Arc<CircuitBreaker<std::io::Error, CountBased, AlwaysFailure>> = Arc::new(CircuitBreaker::new(policy, config, classifier));
+    let cb: Arc<CircuitBreaker<std::io::Error, CountBased, AlwaysFailure>> =
+        Arc::new(CircuitBreaker::new(policy, config, classifier));
     let layer = CircuitBreakerLayer::new(Arc::clone(&cb));
     let mock_service = MockService { should_fail: true };
     let mut service = layer.layer(mock_service);
@@ -65,7 +69,8 @@ async fn tower_call_fails_circuit_open() {
     let policy = CountBased::new(1);
     let classifier = AlwaysFailure;
 
-    let cb : Arc<CircuitBreaker<std::io::Error, CountBased, AlwaysFailure>> = Arc::new(CircuitBreaker::new(policy, config, classifier));
+    let cb: Arc<CircuitBreaker<std::io::Error, CountBased, AlwaysFailure>> =
+        Arc::new(CircuitBreaker::new(policy, config, classifier));
     let layer = CircuitBreakerLayer::new(Arc::clone(&cb));
     let mock_service = MockService { should_fail: true };
     let mut service = layer.layer(mock_service);
@@ -74,4 +79,3 @@ async fn tower_call_fails_circuit_open() {
     let result = service.call(()).await;
     assert!(matches!(result, Err(Error::CircuitOpen)));
 }
-
