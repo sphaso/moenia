@@ -1,0 +1,29 @@
+[package]
+name = "moenia"
+version = "0.1.0"
+edition = "2021"
+description = "Defensive circuit breaker library for Rust"
+license = "Unlicense"
+repository = "https://github.com/YOUR_USERNAME/moenia"
+keywords = ["circuit-breaker", "resilience", "fault-tolerance", "tower", "async"]
+categories = ["network-programming", "asynchronous"]
+rust-version = "1.75"
+
+[features]
+default = []
+tokio = ["dep:tokio"]
+tower = ["dep:tower", "dep:tower-layer", "tokio"]
+otel = ["dep:opentelemetry", "dep:opentelemetry-semantic-conventions"]
+serde = ["dep:serde"]
+
+[dependencies]
+thiserror = "2"
+tokio = { version = "1", features = ["time", "sync"], optional = true }
+tower = { version = "0.5", optional = true }
+tower-layer = { version = "0.3", optional = true }
+opentelemetry = { version = "0.27", optional = true }
+opentelemetry-semantic-conventions = { version = "0.27", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
