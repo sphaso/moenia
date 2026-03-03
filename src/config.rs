@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+#[derive(Clone)]
 pub struct Config {
     name: String,
     pub open_duration: Duration,
@@ -23,6 +24,10 @@ impl Config {
     pub fn half_open_probes(mut self, probes: u32) -> Self {
         self.half_open_probes = probes;
         self
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
     }
 }
 

@@ -1,12 +1,23 @@
 use std::future::Future;
 use std::marker::PhantomData;
 use std::sync::Mutex;
+#[cfg(feature = "otel")]
+use opentelemetry::metrics::Counter;
+#[cfg(feature = "otel")]
+use opentelemetry::KeyValue;
 
 use crate::classifier::Classifier;
 use crate::config::Config;
 use crate::error::Error;
 use crate::policy::Policy;
 use crate::state::{transition, State};
+
+#[cfg(feature = "otel")]
+struct Instrumentation {
+    calls_total: Counter<u64>,
+    calls_rejected: Counter<u64>,
+    state_transitions: Counter<u64>,
+}
 
 struct BreakerState<P: Policy> {
     state: State,
@@ -23,15 +34,28 @@ where
     config: Config,
     classifier: C,
     _phantom: PhantomData<E>,
+    #[cfg(feature = "otel")]
+    instrumentation: Instrumentation,
 }
 
 impl<E: std::error::Error, P: Policy, C: Classifier<E>> CircuitBreaker<E, P, C> {
     pub fn new(policy: P, config: Config, classifier: C) -> Self {
+        #[cfg(feature = "otel")]
+        let meter = opentelemetry::global::meter(config.name().to_owned().leak());
+
         CircuitBreaker {
             inner: Mutex::new(BreakerState { policy, state: State::Closed }),
             config,
             classifier,
             _phantom: PhantomData,
+            #[cfg(feature = "otel")]
+            instrumentation: {
+                Instrumentation {
+                    calls_total: meter.u64_counter("moenia.calls.total").build(),
+                    calls_rejected: meter.u64_counter("moenia.calls.rejected").build(),
+                    state_transitions: meter.u64_counter("moenia.state_transitions").build(),
+                }
+            }
         }
     }
 
@@ -80,6 +104,12 @@ impl<E: std::error::Error, P: Policy, C: Classifier<E>> CircuitBreaker<E, P, C> 
     }
 
     fn pre_call(&self) -> Result<(), Error<E>> {
+        #[cfg(feature = "otel")]
+        let attrs = &[KeyValue::new("breaker.name", self.config.name().to_owned())];
+
+        #[cfg(feature = "otel")]
+        self.instrumentation.calls_total.add(1, attrs);
+
         let mut inner = self.inner.lock().unwrap();
 
         let state_snapshot = inner.state.clone();
@@ -93,12 +123,20 @@ impl<E: std::error::Error, P: Policy, C: Classifier<E>> CircuitBreaker<E, P, C> 
         }
 
         match &inner.state {
-            State::Open { .. } => return Err(Error::CircuitOpen),
+            State::Open { .. } => {
+                #[cfg(feature = "otel")]
+                self.instrumentation.calls_rejected.add(1, attrs);
+
+                return Err(Error::CircuitOpen)
+            },
             State::HalfOpen {
                 in_flight,
                 n_successful_probes,
             } => {
                 if *in_flight {
+                    #[cfg(feature = "otel")]
+                    self.instrumentation.calls_rejected.add(1, attrs);
+
                     return Err(Error::ProbeInFlight);
                 } else {
                     inner.state = State::HalfOpen {
@@ -151,6 +189,21 @@ impl<E: std::error::Error, P: Policy, C: Classifier<E>> CircuitBreaker<E, P, C> 
             self.config.half_open_probes,
             self.config.open_duration,
         ) {
+            #[cfg(feature = "otel")]
+            match (state_snapshot, new_state.clone()) {
+                (State::Closed, State::Open { .. }) =>
+                  self.instrumentation.state_transitions.add(1, &[KeyValue::new("transition", "closed_to_open")]),
+                (State::Closed, State::HalfOpen { .. }) =>
+                  self.instrumentation.state_transitions.add(1, &[KeyValue::new("transition", "closed_to_halfopen")]),
+                (State::Open { .. }, State::HalfOpen { .. }) =>
+                  self.instrumentation.state_transitions.add(1, &[KeyValue::new("transition", "open_to_halfopen")]),
+                (State::HalfOpen {..}, State::Open { .. }) =>
+                  self.instrumentation.state_transitions.add(1, &[KeyValue::new("transition", "halfopen_to_open")]),
+                (State::HalfOpen {..}, State::Closed) =>
+                  self.instrumentation.state_transitions.add(1, &[KeyValue::new("transition", "halfopen_to_closed")]),
+                _ => ()
+            }
+
             inner.state = new_state;
         }
     }
