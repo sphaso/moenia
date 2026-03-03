@@ -17,7 +17,7 @@ use crate::policy::Policy;
 /// use tower::ServiceBuilder;
 /// use std::sync::Arc;
 ///
-/// let breaker = Arc::new(CircuitBreaker::new(
+/// let breaker = Arc::new(CircuitBreaker::<std::io::Error, _, _>::new(
 ///     CountBased::new(5),
 ///     Config::new("payments-service"),
 ///     AlwaysFailure,
